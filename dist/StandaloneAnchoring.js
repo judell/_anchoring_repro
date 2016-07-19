@@ -1,168 +1,4 @@
-(function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.get_annotations = f()}})(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
-'use strict';
-
-Object.defineProperty(exports, "__esModule", {
-  value: true
-});
-
-var _createClass = (function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; })();
-
-var _diffMatchPatch = require('diff-match-patch');
-
-var _diffMatchPatch2 = _interopRequireDefault(_diffMatchPatch);
-
-var _domAnchorTextPosition = require('dom-anchor-text-position');
-
-var _domAnchorTextPosition2 = _interopRequireDefault(_domAnchorTextPosition);
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-// The DiffMatchPatch bitap has a hard 32-character pattern length limit.
-var CONTEXT_LENGTH = 32;
-
-var TextQuoteAnchor = (function () {
-  function TextQuoteAnchor(root, exact) {
-    var context = arguments.length <= 2 || arguments[2] === undefined ? {} : arguments[2];
-
-    _classCallCheck(this, TextQuoteAnchor);
-
-    if (root === undefined) {
-      throw new Error('missing required parameter "root"');
-    }
-    if (exact === undefined) {
-      throw new Error('missing required parameter "exact"');
-    }
-    this.root = root;
-    this.exact = exact;
-    this.prefix = context.prefix;
-    this.suffix = context.suffix;
-  }
-
-  _createClass(TextQuoteAnchor, [{
-    key: 'toRange',
-    value: function toRange(options) {
-      return this.toPositionAnchor(options).toRange();
-    }
-  }, {
-    key: 'toSelector',
-    value: function toSelector() {
-      var selector = {
-        type: 'TextQuoteSelector',
-        exact: this.exact
-      };
-      if (this.prefix !== undefined) selector.prefix = this.prefix;
-      if (this.suffix !== undefined) selector.suffix = this.suffix;
-      return selector;
-    }
-  }, {
-    key: 'toPositionAnchor',
-    value: function toPositionAnchor() {
-      var options = arguments.length <= 0 || arguments[0] === undefined ? {} : arguments[0];
-      var hint = options.hint;
-
-      var root = this.root;
-      var dmp = new _diffMatchPatch2.default();
-
-      dmp.Match_Distance = root.textContent.length * 2;
-
-      // Work around a hard limit of the DiffMatchPatch bitap implementation.
-      // The search pattern must be no more than 32 characters.
-      var slices = this.exact.match(/(.|[\r\n]){1,32}/g);
-      var loc = hint === undefined ? root.textContent.length / 2 | 0 : hint;
-      var start = Number.POSITIVE_INFINITY;
-      var end = Number.NEGATIVE_INFINITY;
-      var result = -1;
-
-      // If the prefix is known then search for that first.
-      if (this.prefix !== undefined) {
-        result = dmp.match_main(root.textContent, this.prefix, loc);
-        if (result > -1) loc = result + this.prefix.length;
-      }
-
-      // Search for the first slice.
-      var firstSlice = slices.shift();
-      result = dmp.match_main(root.textContent, firstSlice, loc);
-      if (result > -1) {
-        start = result;
-        loc = end = start + firstSlice.length;
-      } else {
-        throw new Error('no match found');
-      }
-
-      // Create a fold function that will reduce slices to positional extents.
-      var foldSlices = function foldSlices(acc, slice) {
-        var result = dmp.match_main(root.textContent, slice, acc.loc);
-        if (result === -1) {
-          throw new Error('no match found');
-        }
-
-        // The next slice should follow this one closely.
-        acc.loc = result + slice.length;
-
-        // Expand the start and end to a quote that includes all the slices.
-        acc.start = Math.min(acc.start, result);
-        acc.end = Math.max(acc.end, result + slice.length);
-
-        return acc;
-      };
-
-      // Use the fold function to establish the full quote extents.
-      // Expect the slices to be close to one another.
-      // This distance is deliberately generous for now.
-      dmp.Match_Distance = 64;
-      var acc = slices.reduce(foldSlices, {
-        start: start,
-        end: end,
-        loc: loc
-      });
-
-      return new _domAnchorTextPosition2.default(root, acc.start, acc.end);
-    }
-  }], [{
-    key: 'fromRange',
-    value: function fromRange(root, range) {
-      if (range === undefined) {
-        throw new Error('missing required parameter "range"');
-      }
-
-      var position = _domAnchorTextPosition2.default.fromRange(root, range);
-      return this.fromPositionAnchor(position);
-    }
-  }, {
-    key: 'fromSelector',
-    value: function fromSelector(root) {
-      var selector = arguments.length <= 1 || arguments[1] === undefined ? {} : arguments[1];
-
-      return new TextQuoteAnchor(root, selector.exact, selector);
-    }
-  }, {
-    key: 'fromPositionAnchor',
-    value: function fromPositionAnchor(anchor) {
-      var root = anchor.root;
-
-      var start = anchor.start;
-      var end = anchor.end;
-
-      var exact = root.textContent.substr(start, end - start);
-
-      var prefixStart = Math.max(0, start - CONTEXT_LENGTH);
-      var prefix = root.textContent.substr(prefixStart, start - prefixStart);
-
-      var suffixEnd = Math.min(root.textContent.length, end + CONTEXT_LENGTH);
-      var suffix = root.textContent.substr(end, suffixEnd - end);
-
-      return new TextQuoteAnchor(root, exact, { prefix: prefix, suffix: suffix });
-    }
-  }]);
-
-  return TextQuoteAnchor;
-})();
-
-exports.default = TextQuoteAnchor;
-
-},{"diff-match-patch":2,"dom-anchor-text-position":3}],2:[function(require,module,exports){
+(function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.attach_annotation = f()}})(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 'use strict'
 
 /**
@@ -2357,14 +2193,14 @@ module.exports['DIFF_DELETE'] = DIFF_DELETE;
 module.exports['DIFF_INSERT'] = DIFF_INSERT;
 module.exports['DIFF_EQUAL'] = DIFF_EQUAL;
 
-},{}],3:[function(require,module,exports){
+},{}],2:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
   value: true
 });
 
-var _createClass = (function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; })();
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
 
 var _nodeIteratorShim = require('node-iterator-shim');
 
@@ -2387,7 +2223,7 @@ function getFirstTextNode(node) {
   return walker.firstChild();
 }
 
-var TextPositionAnchor = (function () {
+var TextPositionAnchor = function () {
   function TextPositionAnchor(root, start, end) {
     _classCallCheck(this, TextPositionAnchor);
 
@@ -2508,11 +2344,175 @@ var TextPositionAnchor = (function () {
   }]);
 
   return TextPositionAnchor;
-})();
+}();
 
 exports.default = TextPositionAnchor;
 
-},{"dom-seek":4,"node-iterator-shim":5}],4:[function(require,module,exports){
+},{"dom-seek":4,"node-iterator-shim":5}],3:[function(require,module,exports){
+'use strict';
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+var _diffMatchPatch = require('diff-match-patch');
+
+var _diffMatchPatch2 = _interopRequireDefault(_diffMatchPatch);
+
+var _domAnchorTextPosition = require('dom-anchor-text-position');
+
+var _domAnchorTextPosition2 = _interopRequireDefault(_domAnchorTextPosition);
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+// The DiffMatchPatch bitap has a hard 32-character pattern length limit.
+var CONTEXT_LENGTH = 32;
+
+var TextQuoteAnchor = function () {
+  function TextQuoteAnchor(root, exact) {
+    var context = arguments.length <= 2 || arguments[2] === undefined ? {} : arguments[2];
+
+    _classCallCheck(this, TextQuoteAnchor);
+
+    if (root === undefined) {
+      throw new Error('missing required parameter "root"');
+    }
+    if (exact === undefined) {
+      throw new Error('missing required parameter "exact"');
+    }
+    this.root = root;
+    this.exact = exact;
+    this.prefix = context.prefix;
+    this.suffix = context.suffix;
+  }
+
+  _createClass(TextQuoteAnchor, [{
+    key: 'toRange',
+    value: function toRange(options) {
+      return this.toPositionAnchor(options).toRange();
+    }
+  }, {
+    key: 'toSelector',
+    value: function toSelector() {
+      var selector = {
+        type: 'TextQuoteSelector',
+        exact: this.exact
+      };
+      if (this.prefix !== undefined) selector.prefix = this.prefix;
+      if (this.suffix !== undefined) selector.suffix = this.suffix;
+      return selector;
+    }
+  }, {
+    key: 'toPositionAnchor',
+    value: function toPositionAnchor() {
+      var options = arguments.length <= 0 || arguments[0] === undefined ? {} : arguments[0];
+      var hint = options.hint;
+
+      var root = this.root;
+      var dmp = new _diffMatchPatch2.default();
+
+      dmp.Match_Distance = root.textContent.length * 2;
+
+      // Work around a hard limit of the DiffMatchPatch bitap implementation.
+      // The search pattern must be no more than 32 characters.
+      var slices = this.exact.match(/(.|[\r\n]){1,32}/g);
+      var loc = hint === undefined ? root.textContent.length / 2 | 0 : hint;
+      var start = Number.POSITIVE_INFINITY;
+      var end = Number.NEGATIVE_INFINITY;
+      var result = -1;
+
+      // If the prefix is known then search for that first.
+      if (this.prefix !== undefined) {
+        result = dmp.match_main(root.textContent, this.prefix, loc);
+        if (result > -1) loc = result + this.prefix.length;
+      }
+
+      // Search for the first slice.
+      var firstSlice = slices.shift();
+      result = dmp.match_main(root.textContent, firstSlice, loc);
+      if (result > -1) {
+        start = result;
+        loc = end = start + firstSlice.length;
+      } else {
+        throw new Error('no match found');
+      }
+
+      // Create a fold function that will reduce slices to positional extents.
+      var foldSlices = function foldSlices(acc, slice) {
+        var result = dmp.match_main(root.textContent, slice, acc.loc);
+        if (result === -1) {
+          throw new Error('no match found');
+        }
+
+        // The next slice should follow this one closely.
+        acc.loc = result + slice.length;
+
+        // Expand the start and end to a quote that includes all the slices.
+        acc.start = Math.min(acc.start, result);
+        acc.end = Math.max(acc.end, result + slice.length);
+
+        return acc;
+      };
+
+      // Use the fold function to establish the full quote extents.
+      // Expect the slices to be close to one another.
+      // This distance is deliberately generous for now.
+      dmp.Match_Distance = 64;
+      var acc = slices.reduce(foldSlices, {
+        start: start,
+        end: end,
+        loc: loc
+      });
+
+      return new _domAnchorTextPosition2.default(root, acc.start, acc.end);
+    }
+  }], [{
+    key: 'fromRange',
+    value: function fromRange(root, range) {
+      if (range === undefined) {
+        throw new Error('missing required parameter "range"');
+      }
+
+      var position = _domAnchorTextPosition2.default.fromRange(root, range);
+      return this.fromPositionAnchor(position);
+    }
+  }, {
+    key: 'fromSelector',
+    value: function fromSelector(root) {
+      var selector = arguments.length <= 1 || arguments[1] === undefined ? {} : arguments[1];
+
+      return new TextQuoteAnchor(root, selector.exact, selector);
+    }
+  }, {
+    key: 'fromPositionAnchor',
+    value: function fromPositionAnchor(anchor) {
+      var root = anchor.root;
+
+      var start = anchor.start;
+      var end = anchor.end;
+
+      var exact = root.textContent.substr(start, end - start);
+
+      var prefixStart = Math.max(0, start - CONTEXT_LENGTH);
+      var prefix = root.textContent.substr(prefixStart, start - prefixStart);
+
+      var suffixEnd = Math.min(root.textContent.length, end + CONTEXT_LENGTH);
+      var suffix = root.textContent.substr(end, suffixEnd - end);
+
+      return new TextQuoteAnchor(root, exact, { prefix: prefix, suffix: suffix });
+    }
+  }]);
+
+  return TextQuoteAnchor;
+}();
+
+exports.default = TextQuoteAnchor;
+
+},{"diff-match-patch":1,"dom-anchor-text-position":2}],4:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -2665,267 +2665,12 @@ function shim(iter, root) {
 }
 
 },{}],6:[function(require,module,exports){
-
-// return all text nodes that are contained within `el`
-function getTextNodes(el) {
-  el = el || document.body
-
-  var doc = el.ownerDocument || document
-    , walker = doc.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false)
-    , textNodes = []
-    , node
-
-  while (node = walker.nextNode()) {
-    textNodes.push(node)
-  }
-  return textNodes
-}
-
-// return true if `rangeA` intersects `rangeB`
-function rangesIntersect(rangeA, rangeB) {
-  return rangeA.compareBoundaryPoints(Range.END_TO_START, rangeB) === -1 &&
-    rangeA.compareBoundaryPoints(Range.START_TO_END, rangeB) === 1
-}
-
-// create and return a range that selects `node`
-function createRangeFromNode(node) {
-  var range = node.ownerDocument.createRange()
-  try {
-    range.selectNode(node)
-  } catch (e) {
-    range.selectNodeContents(node)
-  }
-  return range
-}
-
-// return true if `node` is fully or partially selected by `range`
-function rangeIntersectsNode(range, node) {
-  if (range.intersectsNode) {
-    return range.intersectsNode(node)
-  } else {
-    return rangesIntersect(range, createRangeFromNode(node))
-  }
-}
-
-// return all non-empty text nodes fully or partially selected by `range`
-function getRangeTextNodes(range) {
-  var container = range.commonAncestorContainer
-    , nodes = getTextNodes(container.parentNode || container)
-
-  return nodes.filter(function (node) {
-    return rangeIntersectsNode(range, node) && isNonEmptyTextNode(node)
-  })
-}
-
-// returns true if `node` has text content
-function isNonEmptyTextNode(node) {
-  return node.textContent.length > 0
-}
-
-// remove `el` from the DOM
-function remove(el) {
-  if (el.parentNode) {
-    el.parentNode.removeChild(el)
-  }
-}
-
-// replace `node` with `replacementNode`
-function replaceNode(replacementNode, node) {
-  remove(replacementNode)
-  node.parentNode.insertBefore(replacementNode, node)
-  remove(node)
-}
-
-// unwrap `el` by replacing itself with its contents
-function unwrap(el) {
-  var range = document.createRange()
-  range.selectNodeContents(el)
-  replaceNode(range.extractContents(), el)
-}
-
-// undo the effect of `wrapRangeText`, given a resulting array of wrapper `nodes`
-function undo(nodes) {
-  nodes.forEach(function (node) {
-    var parent = node.parentNode
-    unwrap(node)
-    parent.normalize()
-  })
-}
-
-// create a node wrapper function
-function createWrapperFunction(wrapperEl, range) {
-    var startNode = range.startContainer
-      , endNode = range.endContainer
-      , startOffset = range.startOffset
-      , endOffset = range.endOffset
-
-  return function wrapNode(node) {
-    var currentRange = document.createRange()
-      , currentWrapper = wrapperEl.cloneNode()
-
-    currentRange.selectNodeContents(node)
-
-    if (node === startNode && startNode.nodeType === 3) {
-      currentRange.setStart(node, startOffset)
-      startNode = currentWrapper
-      startOffset = 0
-    }
-    if (node === endNode && endNode.nodeType === 3) {
-      currentRange.setEnd(node, endOffset)
-      endNode = currentWrapper
-      endOffset = 1
-    }
-
-    currentRange.surroundContents(currentWrapper)
-    return currentWrapper
-  }
-}
-
-function wrapRangeText(wrapperEl, range) {
-  var nodes
-    , wrapNode
-    , wrapperObj = {}
-
-  if (typeof range === 'undefined') {
-    // get the current selection if no range is specified
-    range = window.getSelection().getRangeAt(0)
-  }
-
-  if (range.isCollapsed) {
-    // nothing to wrap
-    return []
-  }
-
-  if (typeof wrapperEl === 'undefined') {
-    wrapperEl = 'span'
-  }
-
-  if (typeof wrapperEl === 'string') {
-    // assume it's a tagname
-    wrapperEl = document.createElement(wrapperEl)
-  }
-
-  wrapNode = createWrapperFunction(wrapperEl, range)
-
-  nodes = getRangeTextNodes(range)
-  nodes = nodes.map(wrapNode)
-
-  wrapperObj.nodes = nodes
-  wrapperObj.unwrap = function () {
-    if (this.nodes.length) {
-      undo(this.nodes)
-      this.nodes = []
-    }
-  }
-
-  return wrapperObj
-}
-
-module.exports = wrapRangeText
-
-},{}],7:[function(require,module,exports){
 function attach_annotation(exact, prefix, payload, data) {
-  var wrap = require('wrap-range-text');
   var TextQuoteAnchor = require ('dom-anchor-text-quote');
-
-  var tqa = new TextQuoteAnchor.default(document.body, exact, {'prefix':prefix});
-  var range = tqa.toRange();
-
-  var highlight = document.createElement('mark');
-  highlight.id = 'hypothesis-' + data.id;
-  highlight.setAttribute('data-hypothesis', JSON.stringify(data));
-  highlight.title = payload;
-  highlight.className = 'hypothesis_annotation';
-
-  wrap(highlight, range);
+  var tqa = new TextQuoteAnchor(document.body, exact, {'prefix':prefix});
 }
 
-function get_annotations(uri) {
-  var url = 'https://hypothes.is/api/search?limit=200&uri=' + uri;
+module.exports = attach_annotation;
 
-  var xhr = new XMLHttpRequest();
-  xhr.addEventListener("load", function() {
-    // TODO: needs error handling...
-    attach_annotations(JSON.parse(xhr.responseText));
-  });
-  xhr.open("GET", url);
-  xhr.send();
-  return xhr;
-}
-
-function get_selector_with(selector_list, key) {
-  for (var i=0; i<selector_list.length; i++) {
-    if ( selector_list[i].hasOwnProperty(key) )
-      return selector_list[i];
-  }
-}
-
-
-function get_text_quote_selector(selector_list) {
-  return get_selector_with(selector_list, 'exact');
-}
-
-function get_text_position_selector(selector_list) {
-  return get_selector_with(selector_list, 'start');
-}
-
-function get_range(anno) {
-  var selectors = anno.target[0].selector;
-  if (selectors) {
-  for (i=0; i<selectors.length; i++) {
-    var selector = selectors[i];
-    if (selector.hasOwnProperty('start')) {
-      return Math.abs(selector.start - selector.end);
-      }
-    }
-  }
-  return 0;
-}
-
-function compare(a,b) {
-  range_a = get_range(a);
-  range_b = get_range(b);
-  if (range_a > range_b)
-    return -1;
-  else if (range_a < range_b)
-    return 1;
-  else 
-    return 0;
-}
-
-function attach_annotations(data) {
-  var rows = data['rows'];
-  rows.sort(compare);
-
-  var anno_dict = {};
-
-  for ( var i=0; i < rows.length; i++ ) {
-    var row = rows[i];
-    var user = row['user'].replace('acct:','').replace('@hypothes.is','');
-    var selector_list = row['target'][0]['selector'];
-    var text_quote_selector = get_text_quote_selector(selector_list);
-    if ( text_quote_selector == null )
-      continue;
-    var exact = text_quote_selector['exact'];
-    var prefix = text_quote_selector['prefix'];
-    var text = row['text'];
-    var tags = row['tags'].join(', ');
-    payload = user + '\n\n' + tags + '\n\n' + text + '\n\n';
-    anno = {
-        "id":row['id'],
-        "user":user,
-        "exact":exact,
-        "text":text,
-        "prefix":prefix,
-        "tags":tags
-        }
-    try { attach_annotation(exact, prefix, payload, anno );}
-    catch (e) {	console.log('attach_annotation: ' + anno.id + ': ' + e.message); }
-    }
-
-}
-
-module.exports = get_annotations;
-
-},{"dom-anchor-text-quote":1,"wrap-range-text":6}]},{},[7])(7)
+},{"dom-anchor-text-quote":3}]},{},[6])(6)
 });
